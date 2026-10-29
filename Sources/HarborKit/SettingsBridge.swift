@@ -1,5 +1,6 @@
 import AppKit
 import Foundation
+import ServiceManagement
 
 /// How the Harbor hub and the apps share settings.
 ///
@@ -16,10 +17,25 @@ public enum SettingsBridge {
     // MARK: In the apps
 
     /// Call once at launch. Returns the observer token.
+    ///
+    /// Also answers Harbor when it's about to uninstall the app: launched
+    /// with `UninstallRequest.argument`, the app removes its login item and
+    /// exits at once; already running, it does the same on
+    /// `UninstallRequest.notification` and quits.
     @MainActor
     @discardableResult
     public static func listen() -> NSObjectProtocol {
         let domain = Bundle.main.bundleIdentifier ?? ""
+        if CommandLine.arguments.contains(UninstallRequest.argument) {
+            UninstallRequest.prepare()
+            exit(0)
+        }
+        DistributedNotificationCenter.default().addObserver(
+            forName: UninstallRequest.notification, object: domain, queue: .main
+        ) { _ in
+            UninstallRequest.prepare()
+            MainActor.assumeIsolated { NSApp.terminate(nil) }
+        }
         return DistributedNotificationCenter.default().addObserver(
             forName: settingsChanged, object: domain, queue: .main
         ) { _ in
@@ -58,6 +74,33 @@ public enum SettingsBridge {
     public static func permissions(domain: String) -> [String: Bool] {
         CFPreferencesSynchronize(domain as CFString, kCFPreferencesCurrentUser, kCFPreferencesAnyHost)
         return read(permissionsKey, domain: domain) as? [String: Bool] ?? [:]
+    }
+}
+
+/// Before Harbor uninstalls an app, it asks the app to remove what only the
+/// app itself can: its login item. macOS lets an app register and
+/// unregister only itself, so without this the item would linger in System
+/// Settings › Login Items after the app is gone.
+public enum UninstallRequest {
+    /// Posted by Harbor with the app's bundle identifier as the object.
+    public static let notification = Notification.Name("app.harbor.prepareForUninstall")
+    /// Harbor launches an app that isn't running with this argument.
+    public static let argument = "--harbor-prepare-uninstall"
+    /// A file in HarborKit's resource bundle that tells Harbor an app built
+    /// with it understands the request, so Harbor never launches an app that
+    /// would ignore it.
+    public static let markerFile = "HarborKitFeatures.json"
+
+    static func prepare() {
+        if SMAppService.mainApp.status != .notRegistered {
+            try? SMAppService.mainApp.unregister()
+        }
+    }
+
+    /// Whether the app at `url` was built with a HarborKit that answers.
+    public static func isSupported(byAppAt url: URL) -> Bool {
+        let marker = url.appendingPathComponent("Contents/Resources/HarborKit_HarborKit.bundle/Contents/Resources/\(markerFile)")
+        return FileManager.default.fileExists(atPath: marker.path)
     }
 }
 
