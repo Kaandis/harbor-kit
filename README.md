@@ -28,10 +28,14 @@ macOS lets an app add or remove only its own login item, so Harbor can't take on
 
 Both come for free with `SettingsBridge.listen()`. Harbor only asks apps built with HarborKit 0.2 or later, which it recognises by `HarborKitFeatures.json` in HarborKit's resource bundle.
 
+## Staying open
+
+On macOS 27 the App Intents daemon (`linkd`) can adopt a menu bar app that's already running and later quit it as idle, so the app seems to vanish. Return `QuitGuard.reply()` from `applicationShouldTerminate(_:)` and the app turns down that one quit; quitting from its menu, from Harbor or at logout works as before.
+
 ## Use
 
 ```swift
-.package(url: "https://github.com/Kaandis/harbor-kit", from: "0.2.0")
+.package(url: "https://github.com/Kaandis/harbor-kit", from: "0.2.1")
 ```
 
 macOS 15 or later. MIT licensed.
